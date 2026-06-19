@@ -1,0 +1,36 @@
+# Dependencies
+
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# AgentFlow runs
+.agentflow/
+
+# Test artifacts
+.pytest_cache/
+__pycache__/
+
+# Build
+*.egg-info/
+dist/
+build/
+
+# Temp files
+/tmp/trss-*
+/tmp/_trss_*

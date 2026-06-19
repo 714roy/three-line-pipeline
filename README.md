@@ -79,7 +79,7 @@ TRSS is an **agent orchestration pipeline** that implements the ancient **三省
 ### 安装 / Install
 
 ```bash
-git clone https://github.com/714roy/three-line-pipeline.git
+git clone https://github.com/reoroy/three-line-pipeline.git
 cd three-line-pipeline
 
 cp src/entry.sh /usr/local/bin/trss

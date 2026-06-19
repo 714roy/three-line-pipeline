@@ -1,88 +1,88 @@
-# Pitfalls & Lessons Learned
+# 实战陷阱（Pitfalls）
 
-> A collection of bugs, design flaws, and hard-won lessons from running the TRSS pipeline in production. Updated 2026-06-19.
+> 三总六科管线在生产环境中踩过的 bug、设计缺陷和血泪教训。更新于 2026-06-19。
 
 ---
 
-## 🔴 P1: Jinja2 Templates Don't Know Python Variables
+## 🔴 P1：Jinja2 模板不认识 Python 变量
 
-**Severity:** Critical — pipeline crash
+**严重性：** 致命——管线崩溃
 
-AgentFlow uses Jinja2 to render shell scripts **before execution**. `{{ variable }}` only works for AgentFlow context variables (e.g., `{{ nodes.NodeName.output }}`), **not** for Python module-level variables.
+AgentFlow 在执行 shell 脚本前先用 Jinja2 渲染。`{{ variable }}` 只认 AgentFlow 上下文变量（如 `{{ nodes.节点名.output }}`），**不认** Python 模块级变量。
 
 ```python
-# ❌ CRASH: Jinja2 doesn't know TASK
+# ❌ 崩溃：Jinja2 不知道 TASK 是什么
 "{{ TASK }}"
 
-# ✅ DO: Use Python f-string + file-based injection
+# ✅ 正确：用 Python f-string + 文件注入
 f"【任务】{TASK}"
 ```
 
-**Lesson:** Python variables and Jinja2 template variables are separate worlds. Copy task text into temp files and read from shell, never rely on `{{ }}` for Python variables.
+**教训：** Python 变量和 Jinja2 模板变量是两个独立世界。任务文本通过临时文件传递，永远不要用 `{{ }}` 引用 Python 变量。
 
 ---
 
-## 🔴 P2: Parallel Nodes Crash on `nodes.X.output[:N]` Slicing
+## 🔴 P2：并行节点的 `nodes.X.output[:N]` 切片崩溃
 
-**Severity:** Critical — TypeError in Jinja2 rendering
+**严重性：** 致命——Jinja2 渲染 TypeError
 
-When a shell node references a sibling parallel node's output: `{{ nodes.礼部.output[:3000] }}` — but the sibling hasn't started yet, so `output` is `None`, and `None[:3000]` raises `TypeError`.
+当 shell 节点引用并行兄弟节点的输出：`{{ nodes.礼部.output[:3000] }}`——但兄弟节点还没执行，`output` 是 `None`，`None[:3000]` 抛出 TypeError。
 
 ```bash
-# Fix: remove all output slicing in parallel-scoped nodes
+# 修复：移除所有并行作用域内的 output 切片
 sed -i 's/\.output\[:[0-9]*\]/.output/g' pipeline.py
 ```
 
-**Lesson:** Never assume a parallel node's output is available. Only slice outputs of nodes that are guaranteed to have run (the preceding serial chain).
+**教训：** 永远不要假定并行节点的 output 就绪。只有对串行链中已完成的节点做切片才是安全的。
 
 ---
 
-## 🟡 P3: Markdown Format Pollution on KEY=VALUE Extraction
+## 🟡 P3：Markdown 格式污染导致 KEY=VALUE 提取失败
 
-**Severity:** High — silent archive failure
+**严重性：** 高——归档静默失败
 
-LLMs in a markdown context naturally wrap output values in `**bold**` or `| table |` formatting. When the pipeline does `grep "^OUTPUT_NAME="`, it finds `**OUTPUT_NAME=xxx**` which doesn't match.
+LLM 在 markdown 上下文中会自然给输出值加 `**加粗**` 或 `| 表格 |` 格式。管线的 `grep "^OUTPUT_NAME="` 找到的是 `**OUTPUT_NAME=xxx**`，匹配不上。
 
 ```bash
-# ❌ Fails on **OUTPUT_NAME=xxx**
+# ❌ 遇到 **OUTPUT_NAME=xxx** 就跪
 grep "^OUTPUT_NAME=" file.txt
 
-# ✅ Works on all common formats
+# ✅ 通用格式都兼容
 sed "s/^[* |]*//" file.txt | grep "^OUTPUT_NAME="
 ```
 
-**Affected extractions:** OUTPUT_NAME, ARCHIVE_PATH, MODE, TYPE, VERDICT, FEEDBACK, REWORK_TYPE — 6+ fields across 3 review nodes.
+**影响的提取字段：** OUTPUT_NAME、ARCHIVE_PATH、MODE、TYPE、VERDICT、FEEDBACK、REWORK_TYPE——跨 3 个审核节点共 6+ 个字段。
 
-**Lesson:** Always strip leading markdown before grep for KEY=VALUE extractions. Use `sed "s/^[* |]*//"` as a universal prefix stripper.
+**教训：** 所有 KEY=VALUE 提取必须先用 sed 剥离前导 markdown 格式。用 `sed "s/^[* |]*//"` 做通用前缀清理。
 
 ---
 
-## 🟡 P4: MCP Tool Output Noise Contaminates Documents
+## 🟡 P4：MCP 工具输出噪音污染文档
 
-**Severity:** High — 400+ lines of JSON prepended to output
+**严重性：** 高——产出文件前 400 行是 JSON 垃圾
 
-When LLM runners load MCP servers (like agentmemory), startup probes auto-execute and their raw JSON responses get mixed into the generated content.
+LLM 运行器加载 MCP 服务器（如 agentmemory）后，启动探针自动执行，原始 JSON 响应混入生成内容。
 
 ```bash
-# Fix: filter out MCP noise in the Oversight Office
+# 修复：督办处归档时加 MCP 噪音过滤
 for f in "$DEST/产出/"*.md; do
   head -1 "$f" | grep -q "^\[tool agentmemory_" || continue
-  sed -i "0,/^# /{//!d}" "$f"  # delete everything before first heading
+  sed -i "0,/^# /{//!d}" "$f"  # 删掉第一个标题前的所有内容
 done
 ```
 
-**Lesson:** Any LLM output that passes through MCP-enabled runners is vulnerable to probe-injection. Always filter at the archive step.
+**教训：** 任何经过 MCP 运行器的 LLM 输出都可能被探针注入。归档步骤必须做过滤。
 
 ---
 
-## 🟡 P5: Entry Script vs Pipeline Directory Drift
+## 🟡 P5：入口脚本与管线目录不同步
 
-**Severity:** High — running old code without knowing
+**严重性：** 高——静默运行旧代码
 
-The entry script (`entry.sh`) runs `agentflow run` in `$TRSS_PIPELINE_DIR`. If fixes are applied to the source tree but not re-deployed, the pipeline silently runs stale code.
+入口脚本 `cd $TRSS_PIPELINE_DIR` 后跑 `agentflow run`。如果修复写到了源码树但没有重新部署到运行目录，管线静默运行旧代码。
 
 ```bash
-# Add a version check at startup
+# 加启动检查
 if [ -f "$TRSS_PIPELINE_DIR/pipeline.py" ]; then
   SRC_MD5=$(md5sum "$SOURCE_TREE/pipeline.py" | cut -d' ' -f1)
   DEP_MD5=$(md5sum "$TRSS_PIPELINE_DIR/pipeline.py" | cut -d' ' -f1)
@@ -92,21 +92,21 @@ if [ -f "$TRSS_PIPELINE_DIR/pipeline.py" ]; then
 fi
 ```
 
-**Lesson:** Fix the source tree, then re-deploy to the pipeline directory. Add a startup hash check.
+**教训：** 修复源码树后必须重新部署到管线目录。加启动时 hash 校验。
 
 ---
 
-## 🟡 P6: Python `-c` Inline with `$` Characters in Bash Context
+## 🟡 P6：Python `-c` 内嵌带 `$` 的代码在 bash 上下文中崩溃
 
-**Severity:** High — shell syntax error
+**严重性：** 高——shell 语法错误
 
-Embedding Python code in `bash -c` (via AgentFlow's shell executor) with `$` characters (e.g., regex anchors) causes bash to interpret them as variable references.
+在 `bash -c`（通过 AgentFlow 的 shell 执行器）中嵌入带 `$` 字符的 Python 代码（如正则结尾锚点），bash 将其解释为变量引用。
 
 ```python
-# ❌ BROKEN: $ inside python3 -c "..."
+# ❌ 崩溃：$ 被 bash 展开
 python3 -c "re.compile(r'^(?:foo|bar$)', re.M)"
 
-# ✅ SAFE: Write temp file, then execute
+# ✅ 安全：写临时文件再执行
 cat > /tmp/script.py << 'PYEOF'
 import re
 re.compile(r'^(?:foo|bar$)', re.M)
@@ -114,82 +114,82 @@ PYEOF
 python3 /tmp/script.py
 ```
 
-**Lesson:** Never embed Python code with `$` characters in `python3 -c "..."`. Always write a temp file.
+**教训：** 永远不要在内联 `python3 -c "..."` 中嵌入带 `$` 的 Python 代码。写临时文件。
 
 ---
 
-## 🟡 P7: AgentFlow Parallel Dispatch Breaks STOP Signals
+## 🟡 P7：AgentFlow 并行调度导致 STOP 信号失效
 
-**Severity:** High — duplicate execution
+**严重性：** 高——重复执行
 
-AgentFlow schedules **all nodes without explicit dependencies in parallel**. A Secretariat-written STOP file (`/tmp/trss-STOP.txt`) for the `direct` route isn't seen by other nodes — they've already started.
+AgentFlow 默认将**没有显式依赖关系的节点全部并行调度**。秘书处写的 STOP 文件（`/tmp/trss-STOP.txt`）其他节点看不到——因为它们已经启动了。
 
 ```bash
-# Fix: pre-check at the entry script level, don't rely on AgentFlow file signals
+# 修复：在入口脚本层级预判，不依赖 AgentFlow 文件信号
 ROUTE=$(reasonix precheck "$TASK")
 if [ "$ROUTE" = "direct" ]; then
   reasonix answer "$TASK"
-  exit 0  # never call agentflow at all
+  exit 0  # 完全不调 agentflow
 fi
 agentflow run pipeline.py
 ```
 
-**Lesson:** File signals are unreliable in a parallel execution model. Pre-route at the script level.
+**教训：** 文件信号在并行架构下不可靠。在脚本层级做预路由。
 
 ---
 
-## 🟢 P8: Unquoted Heredoc in Bash Expands Variables
+## 🟢 P8：不加引号的 Heredoc 展开 shell 变量
 
-**Severity:** Medium — incorrect prompts
+**严重性：** 中——提示词错误
 
 ```bash
-cat > prompt.md << PROMPT_EOF   # UNQUOTED — shell expands $VARS
-cat > prompt.md << 'PROMPT_EOF' # QUOTED — literal text
+cat > prompt.md << PROMPT_EOF   # 没引号——shell 展开 $VARS
+cat > prompt.md << 'PROMPT_EOF' # 有引号——字面文本
 ```
 
-When writing LLM prompts from shell scripts, use **quoted heredoc** (`<< 'EOF'`) to prevent shell expansion of `$` in the prompt text.
+写 LLM 提示词时用 **带引号的 heredoc**（`<< 'EOF'`）防止 `$` 被 shell 展开。
 
 ---
 
-## 🟢 P9: Rework Loop Loses MODE/TYPE on Round 2
+## 🟢 P9：重做循环第 2 轮丢失 MODE/TYPE
 
-**Severity:** Medium — all nodes skip on second round
+**严重性：** 中——所有节点在第 2 轮全部跳过
 
-During rework round 2, nodes that skip (中书省 after round 1, etc.) don't output MODE/TYPE. If the temp files are consumed or overwritten, downstream nodes get empty MODE → all exit as `[SKIP]`.
+重做第 2 轮中，跳过的节点（如方案总第 2 轮跳过重拆）不输出 MODE/TYPE。如果临时文件被消耗或覆盖，下游节点拿到空 MODE → 全部 `[SKIP]` 退出。
 
 ```bash
-# Fix: Persist MODE/TYPE from round 1 before starting round 2
+# 修复：第 2 轮启动前从第 1 轮输出恢复 MODE/TYPE
 if [ $ROUND -eq 2 ]; then
   grep -E '^MODE=' /tmp/_trss_ROUTE.txt > /tmp/trss-CUR-MODE.txt
   grep -E '^TYPE=' /tmp/_trss_REVIEW.txt > /tmp/trss-TYPE.txt
 fi
 ```
 
-**Lesson:** Rework loops must restore state from round 1 outputs, not from skipped round 2 outputs.
+**教训：** 重做循环必须从第 1 轮输出恢复状态，而不是从被跳过的第 2 轮输出获取。
 
 ---
 
-## 🟢 P10: Verdict Check Before Archive Loses Output
+## 🟢 P10：先判 Verdict 再归档导致产出丢失
 
-**Severity:** Medium — output discarded on rework
+**严重性：** 中——重做时产出被丢弃
 
-The original pipeline checked verdict before archiving. When rework was signaled, `exit 0` happened before `cp`, so the output was lost — rework had nothing to improve upon.
+原始设计先判 verdict 再归档。判重做时 `exit 0` 在 `cp` 之前执行，产出丢失——重做时没有东西可以改进。
 
-**Fix:** Archive first, then check verdict.
+**修复：** 先归档，再判 verdict。
 
 ---
 
-## Summary
+## 总结
 
-| # | Pattern | Category | Fixed |
-|:--|:--------|:---------|:------|
-| P1 | Jinja2 doesn't know Python variables | AgentFlow | ✅ |
-| P2 | Parallel node output slicing | AgentFlow | ✅ |
-| P3 | Markdown format pollution | LLM output | ✅ (sed prefix) |
-| P4 | MCP noise injection | LLM runner | ✅ (oversight filter) |
-| P5 | Source/directory drift | Deployment | ⚠️ (add check) |
-| P6 | Python `-c` with `$` | Shell scripting | ✅ (temp files) |
-| P7 | File signal in parallel graph | AgentFlow | ✅ (pre-route) |
-| P8 | Unquoted heredoc | Shell scripting | ✅ (quoted) |
-| P9 | MODE/TYPE loss in rework | Pipeline logic | ✅ |
-| P10 | Archive after verdict | Pipeline logic | ✅ (archive-first) |
+| # | 模式 | 类别 | 状态 |
+|:--|:------|:------|:------|
+| P1 | Jinja2 不认识 Python 变量 | AgentFlow | ✅ 已修复 |
+| P2 | 并行节点 output 切片崩溃 | AgentFlow | ✅ 已修复 |
+| P3 | Markdown 格式污染提取 | LLM 输出 | ✅ sed 前缀 |
+| P4 | MCP 噪音注入 | LLM 运行器 | ✅ 督办处过滤 |
+| P5 | 源码/运行目录不同步 | 部署 | ⚠️ 加检查 |
+| P6 | Python `-c` 内嵌 `$` | Shell 脚本 | ✅ 临时文件 |
+| P7 | 并行图文件信号失效 | AgentFlow | ✅ 预路由 |
+| P8 | 未引号 heredoc | Shell 脚本 | ✅ 加引号 |
+| P9 | 重做丢失 MODE/TYPE | 管线逻辑 | ✅ 已修复 |
+| P10 | Verdict 先于归档 | 管线逻辑 | ✅ 先归档 |

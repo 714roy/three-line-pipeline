@@ -1,146 +1,143 @@
-# Architecture
+# 架构设计
 
-## Design Philosophy
+## 设计哲学
 
-TRSS is not a code framework — it is an **organizational institution** for AI agents. The core idea comes from the Tang dynasty's 三省六部 (Three Departments, Six Ministries) governance model, restructured here with modern corporate vocabulary.
+TRSS 不是一个代码框架——它是一套 **Agent 组织制度**。核心思想源自唐代三省六部，用现代企业词汇（总、科、秘书处、督办处）做了重新表达。
 
-### Three Core Principles
+### 三个核心原则
 
-**1. Separation of Powers**
-Planning (方案总), Review (审核总/质控总), and Audit (审计总) are independent bodies. No single agent both produces and approves work — this prevents self-confirmation bias.
+**1. 分权制衡**
+方案总（规划）、审核总/质控总（审核）、审计总（审计）是三个独立的权力体。没有一个 Agent 既生产又审批自己的工作——这防止了自我确认偏差。
 
-**2. Sequential Review, Parallel Execution**
-The review chain is strictly serial (each gate sees the full output of the previous gate), but executing departments run in parallel. This mirrors the original 三省六部 design where 门下省 reviews independently of the producing departments.
+**2. 逐级审核，并行执行**
+审核链严格串行（每道门都看到前面所有门的完整输出），执行部门并行运行。这对应原三省六部中门下省独立于产出部门进行审核的设计。
 
-**3. Feedback Loops with Escalation**
-Rejected work goes back to the originating department with structured feedback. After 2 consecutive rejections, the pipeline signals a full redesign. After 3 rejections on the same issue, it flags a dead end for human intervention.
+**3. 反馈循环 + 升级机制**
+被驳回的产出带结构化反馈回到原部门。连续 2 轮驳回 → 降级为推翻重做。同一问题驳回 3 次 → 标记死胡同，人工介入。
 
 ---
 
-## Node Architecture
+## 节点架构
 
-### The Pipeline (AgentFlow Version)
+### 管线（AgentFlow 版本）
 
-TRSS defines 16 nodes in a directed graph:
+TRSS 定义 16 个节点，按有向图编排：
 
 ```text
-Secretariat → Secretariat Notification
-    → Planning Director → Planning Notification
-        → Review Director → Review Notification
-            → [Six Sections in parallel: Content, R&D, Intel, Engineering, Data, HR]
-                → Quality Director → Quality Check
-                    → Audit Director → Audit Notification
-                        → Oversight Office
+秘书处 → 秘书处通知
+    → 方案总 → 方案总通知
+        → 审核总 → 审核总通知
+            → [六科并行：内容科、研发科、情报科、工程科、数据科、人事科]
+                → 质控总 → 质控检查
+                    → 审计总 → 审计总通知
+                        → 督办处
 ```
 
-### Node Responsibilities
+### 节点职责
 
-| Node | Type | Input | Output |
-|:-----|:-----|:------|:-------|
-| **Secretariat** (秘书处) | LLM/reasonix | Raw task | Three-mirror analysis + ROUTE/MODE decision |
-| **Planning Director** (方案总) | LLM/reasonix | Task + mirror analysis | Decomposition into 3-5 sub-questions + MODE recommendation |
-| **Review Director** (审核总) | LLM/reasonix | Plan | VERDICT (pass/redesign) + improved plan |
-| **Content Section** (内容科) | LLM/reasonix | Reviewed plan | Research output, data gathering |
-| **R&D Section** (研发科) | Codex/Claude | Reviewed plan | Code implementation |
-| **Intelligence Section** (情报科) | LLM/reasonix | Reviewed plan | External knowledge verification |
-| **Engineering Section** (工程科) | LLM/reasonix | Reviewed plan | Solution design, framework |
-| **Data Section** (数据科) | LLM/reasonix | Reviewed plan | Feasibility assessment |
-| **HR Section** (人事科) | LLM/reasonix | Reviewed plan | Key insight extraction |
-| **Quality Director** (质控总) | LLM/reasonix | All department outputs | VERDICT + OUTPUT_NAME + ARCHIVE_PATH + route table JSON |
-| **Audit Director** (审计总) | LLM/reasonix | All outputs + QC verdict | VERDICT (pass/rework) + improved final output |
-| **Oversight Office** (督办处) | shell | All artifacts | Archive files, check verdicts, signal rework |
+| 节点 | 武器 | 输入 | 输出 |
+|:-----|:-----|:------|:------|
+| **秘书处** | LLM | 原始任务 | 三镜分析 + ROUTE/MODE 决策 |
+| **方案总** | LLM | 任务+三镜分析 | 拆解为 3-5 个子问题 + MODE 推荐 |
+| **审核总** | LLM | 方案 | VERDICT（通过/重拆）+ 优化后的方案 |
+| **内容科** | LLM | 审核通过的方案 | 调研输出、资料搜集 |
+| **研发科** | Codex/Claude | 审核通过的方案 | 代码实现 |
+| **情报科** | LLM | 审核通过的方案 | 外部知识核验 |
+| **工程科** | LLM | 审核通过的方案 | 方案设计、框架产出 |
+| **数据科** | LLM | 审核通过的方案 | 可行性评估 |
+| **人事科** | LLM | 审核通过的方案 | 关键要点提炼 |
+| **质控总** | LLM | 所有部门产出 | VERDICT + OUTPUT_NAME + ARCHIVE_PATH + 路由表 JSON |
+| **审计总** | LLM | 所有产出+质控结论 | VERDICT（通过/重做）+ 完善后的最终产出 |
+| **督办处** | shell | 所有产物 | 归档文件、判 verdict、触发 rework 信号 |
 
 ---
 
-## Routing
+## 路由决策
 
-### Two-Way Routing
+### 两条路线
 
-On entry, the Secretariat decides between two paths:
+入口处，秘书处判断走哪条路：
 
-| Route | Condition | Trigger | Cost |
-|:------|:----------|:--------|:-----|
-| **direct** | Single factual question, brief answer sufficient | `ROUTE=direct` | ~$0.001 |
-| **pipeline** | Multi-dimensional, needs formal document | `ROUTE=pipeline` | ~$0.01-0.02 |
+| 路线 | 条件 | 触发 | 成本 |
+|:-----|:------|:------|:------|
+| **direct** | 单一事实性问题，简短答案即可 | `ROUTE=direct` | ~$0.001 |
+| **pipeline** | 多维度分析，需正式文档产出 | `ROUTE=pipeline` | ~$0.01-0.02 |
 
-### Four Modes (pipeline)
+### 四种模式
 
-| Mode | Sections | Best For |
+| 模式 | 参与部门 | 最佳场景 |
 |:-----|:---------|:---------|
-| `research` | Content + Intel + Engineering | Market research, data gathering |
-| `build` | Engineering + Data | Solution design, coding projects |
-| `debate` | Content + HR + Intel | Decision evaluation, comparative analysis |
-| `full` | All six | Complex multi-faceted tasks |
+| `research` | 内容科 + 情报科 + 工程科 | 市场调研、资料搜集 |
+| `build` | 工程科 + 数据科 | 方案设计、代码项目 |
+| `debate` | 内容科 + 人事科 + 情报科 | 决策评估、争议分析 |
+| `full` | 全部六科 | 复杂综合任务 |
 
-The mode is recommended by the Planning Director and confirmed by the Review Director. Departments not in the current mode skip automatically.
+模式由方案总推荐、审核总确认。不在当前模式的部门自动跳过。
 
 ---
 
-## Rework Loop
+## 重做循环
 
 ```text
                         ┌──────────────┐
-                        │  Pipeline     │
-                        │  Execution    │
+                        │  管线执行     │
                         └──────┬───────┘
                                │
                     ┌──────────▼──────────┐
-                    │   Oversight Office   │
-                    │   Check Verdicts     │
+                    │  督办处判 verdict    │
                     └──────────┬──────────┘
                                │
                     ┌──────────▼──────────┐
-                    │  Any verdict =       │
-                    │  rework/redesign?    │
+                    │  有节点判驳回？      │
                     └──────┬──────┬───────┘
-                        No │     │ Yes
+                        否 │     │ 是
                            ▼     ▼
                       ┌──────┐ ┌──────────────────────┐
-                      │Done │ │ Rework with feedback  │
-                      └──────┘ │ Max 2 rounds         │
-                               │ 3rd → human intervene│
+                      │完成  │ │ 带反馈重做           │
+                      └──────┘ │ 最多 2 轮             │
+                               │ 第 3 轮→人工介入      │
                                └──────────────────────┘
 ```
 
-Three verdict points:
-1. **Review Director** — plan quality → redesign (back to Planning)
-2. **Quality Director** — output quality → rework (back to departments)
-3. **Audit Director** — final audit → rework or redesign
+三个 verdict 触发点：
+1. **审核总** — 方案质量 → 重拆（打回方案总）
+2. **质控总** — 产出质量 → 重做（打回各部门）
+3. **审计总** — 最终审计 → 重做或重拆
 
 ---
 
-## Design Evolution
+## 设计演化
 
-TRSS went through three architectural phases:
+TRSS 经历了三个架构阶段：
 
-| Phase | Framework | Pattern | Status |
-|:------|:----------|:--------|:-------|
-| v1 | **LangGraph** | State-machine with Send/Command | Legacy (in `langgraph/`) |
-| v2 | **AgentFlow** | Directed graph with fan-out/fan-in | Primary (in `src/`) |
-| v3 | **Pi fork** (planned) | Extension-based, 4 native loops | Future |
+| 阶段 | 框架 | 模式 | 状态 |
+|:-----|:------|:------|:------|
+| v1 | **LangGraph** | 状态机 + Send/Command | 遗留（`langgraph/`） |
+| v2 | **AgentFlow** | 有向图 + fan-out/fan-in | 主力（`src/`） |
+| v3 | **Pi fork**（计划） | 扩展机制 + 4 种原生 Loop | 未来 |
 
-### Key Design Decisions
+### 关键设计决策
 
-**Why AgentFlow over LangGraph for production?**
-AgentFlow's shell-based nodes are simpler to debug and iterate — each node produces a plain text file. LangGraph's Python state machine is more elegant but harder to modify at runtime.
+**为什么 AgentFlow 而不是 LangGraph 做生产？**
+AgentFlow 的 shell 节点更容易调试和迭代——每个节点产生一个纯文本文件。LangGraph 的 Python 状态机更优雅但运行时修改困难。
 
-**Why `ROUTE=direct` exists at all?**
-Full pipeline costs ~$0.01-0.02 per run. For simple questions (weather, lookup, quick facts), this is wasteful. The Secretariat triage saves ~90% of tasks from unnecessary overhead.
+**为什么要有 `ROUTE=direct`？**
+完整管线每次 ~$0.01-0.02。对简单问题（天气、查询、快速事实），这是浪费。秘书处分拣为 ~90% 的任务省去了不必要的开销。
 
-**Why archive before verdict?**
-Originally verdict was checked before archiving — if rework was signaled, output was discarded. The fix (archive-first) ensures no output is ever lost, even if the pipeline needs another round.
+**为什么先归档再判 verdict？**
+原始设计是先判 verdict 再归档——如果判重做，`exit 0` 在 `cp` 之前执行，产出丢失。修复为先归档再判 verdict，确保产出永不丢失。
 
 ---
 
-## Comparison: TRSS vs Modern Alternatives
+## TRSS vs 同类方案
 
-| Aspect | TRSS | LangGraph Supervisor | CrewAI | AutoGen |
-|:-------|:-----|:-------------------|:-------|:--------|
-| Review chain | 3-layer (plan/quality/audit) | 1‑layer supervisor | None built-in | Optional critic |
-| Parallel execution | 6-section fan-out | Manual | Via agents | Via agents |
-| Rework loop | Built-in with feedback | Manual | None | None |
-| Direct route | Built-in triage | N/A | N/A | N/A |
-| Archive + naming | Integrated | Manual | Manual | Manual |
-| MCP noise filter | Built-in | N/A | N/A | N/A |
+| 维度 | TRSS | LangGraph Supervisor | CrewAI | AutoGen |
+|:-----|:-----|:--------------------|:-------|:--------|
+| 审核链 | 3 层（方案/质量/审计） | 1 层 supervisor | 无内置 | 可选 critic |
+| 并行执行 | 六科 fan-out | 手动 | 通过 agents | 通过 agents |
+| 重做循环 | 内置 + 反馈注入 | 手动 | 无 | 无 |
+| 直达通道 | 内置分拣 | 无 | 无 | 无 |
+| 归档+命名 | 集成 | 手动 | 手动 | 手动 |
+| MCP 噪音过滤 | 内置 | 无 | 无 | 无 |
 
-TRSS is opinionated: it enforces a specific governance model. For teams that want a flexible toolkit, LangGraph or AutoGen are better. For teams that want a battle-tested review pipeline, TRSS provides guardrails out of the box.
+TRSS 是有主见的：它强制一套特定的治理模型。如果你需要灵活的工具箱，LangGraph 或 AutoGen 更适合。如果你需要经实战检验的审核管线，TRSS 提供了开箱即用的护栏。

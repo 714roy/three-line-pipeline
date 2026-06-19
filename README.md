@@ -1,162 +1,161 @@
-# TRSS — Three-Review Six-Section / 三总六科
+# TRSS — 三总六科 / Three-Review Six-Section
 
+> **分权制衡的 Agent 编排管线**：秘书处 → 方案总 → 审核总 → 六科并行 → 质控总 → 审计总 → 督办处
+>
 > **Agent orchestration with separation of powers**: Secretariat → Planning → Review → Parallel Execution → Quality Check → Audit → Oversight.
 
-TRSS is an **agent orchestration pipeline** that implements the ancient **三省六部** governance model in modern corporate vocabulary. It routes tasks through a structured review chain with parallel department execution, rework loops, and independent audit — all configurable via environment variables.
+TRSS 是对古代**三省六部**治理模型的现代化改造，用企业组织架构的词汇（总、科、秘书处、督办处）重新实现了分权制衡、逐级审核、并行执行、独立审计的核心设计。所有配置通过环境变量完成。
+
+TRSS is an **agent orchestration pipeline** that implements the ancient **三省六部** governance model in modern corporate vocabulary. It routes tasks through a structured review chain with parallel department execution, rework loops, and independent audit.
 
 ---
 
-## Architecture
+## 架构 / Architecture
 
 ```text
                      ┌──────────────────────┐
-                     │    Secretariat        │  ← Task triage: direct or pipeline?
-                     │    (秘书处)            │
+                     │    秘书处             │  ← 任务分拣：direct / pipeline？
+                     │    Secretariat        │
                      └──────────┬───────────┘
-                                │ (pipeline route)
+                                │ (pipeline 路线)
                      ┌──────────▼───────────┐
-                     │    Planning Director  │  ← Break down task, recommend mode
-                     │    (方案总)            │
+                     │    方案总             │  ← 拆解任务，推荐模式
+                     │    Planning Director  │
                      └──────────┬───────────┘
                      ┌──────────▼───────────┐
-                     │    Review Director    │  ← Approve or redesign the plan
-                     │    (审核总)            │
+                     │    审核总             │  ← 批准或打回重拆
+                     │    Review Director    │
                      └──────────┬───────────┘
                                 │
               ┌─────────────────┼─────────────────┐
               │                 │                  │
      ┌────────▼───┐   ┌────────▼───┐    ┌────────▼───┐
-     │ Content    │   │  R&D       │    │ Intelligence│  ← Six sections execute in
-     │ (内容科)    │   │  (研发科)   │    │ (情报科)    │     parallel based on mode
+     │ 内容科     │   │ 研发科     │    │ 情报科     │  ← 六科按模式并行执行
+     │ Content    │   │ R&D        │    │ Intelligence│
      ├────────────┤   ├────────────┤    ├────────────┤
-     │ Engineering│   │  Data      │    │  HR        │
-     │ (工程科)    │   │  (数据科)   │    │ (人事科)    │
+     │ 工程科     │   │ 数据科     │    │ 人事科     │
+     │ Engineering│   │ Data       │    │ HR         │
      └────────────┘   └────────────┘    └────────────┘
               │                 │                  │
               └─────────────────┼──────────────────┘
                      ┌──────────▼───────────┐
-                     │   Quality Director   │  ← Review output, name & route artifacts
-                     │   (质控总)            │
+                     │    质控总             │  ← 审核产出、命名归档路径
+                     │    Quality Director   │
                      └──────────┬───────────┘
                      ┌──────────▼───────────┐
-                     │   Audit Director     │  ← Final sign-off or rework
-                     │   (审计总)            │
+                     │    审计总             │  ← 最终签批或打回重做
+                     │    Audit Director     │
                      └──────────┬───────────┘
                      ┌──────────▼───────────┐
-                     │   Oversight Office    │  ← Archive, notify, check verdicts
-                     │   (督办处)            │
+                     │    督办处             │  ← 归档、通知、判 verdict
+                     │    Oversight Office   │
                      └──────────────────────┘
 ```
 
-### Four Modes
+### 四种模式 / Four Modes
 
-| Mode | Participating Sections | Best For |
-|:-----|:-----------------------|:---------|
-| `research` | Content + Intelligence + Engineering | Market research, data gathering |
-| `build` | Engineering + Data | Solution design, coding projects |
-| `debate` | Content + HR + Intelligence | Decision evaluation, comparative analysis |
-| `full` | All six sections | Complex multi-faceted tasks |
+| 模式 | 参与部门 | 适用场景 |
+|:-----|:---------|:---------|
+| `research` | 内容科 + 情报科 + 工程科 | 市场调研、资料搜集 |
+| `build` | 工程科 + 数据科 | 方案设计、代码项目 |
+| `debate` | 内容科 + 人事科 + 情报科 | 决策评估、争议分析 |
+| `full` | 全部六科 | 复杂综合任务 |
 
-### Two Routes
+### 两条路线 / Two Routes
 
-| Route | Meaning | Cost | Latency |
-|:------|:--------|:-----|:--------|
-| `direct` | Secretariat answers directly | ~$0.001 | ~10s |
-| `pipeline` | Full review chain | ~$0.01-0.02 | ~3-10min |
+| 路线 | 含义 | 成本 | 耗时 |
+|:-----|:------|:-----|:-----|
+| `direct` | 秘书处直接回答 | ~$0.001 | ~10s |
+| `pipeline` | 完整审核链 | ~$0.01-0.02 | ~3-10min |
 
-### Rework Loop
+### 重做循环 / Rework Loop
 
-If any review body (Review Director / Quality Director / Audit Director) rejects the output, the pipeline enters a rework loop with feedback injection. After 2 consecutive rejections, it downgrades to a full redesign.
+任一审核节点（审核总/质控总/审计总）驳回产出 → 进入重做循环（带反馈注入）。连续 2 轮驳回 → 降级为推翻重做。同一问题驳回 3 次 → 标记死胡同，建议人工介入。
 
 ---
 
-## Quick Start
+## 快速开始 / Quick Start
 
-### Prerequisites
-
-- Python 3.10+
-- [AgentFlow](https://github.com/noahyamamoto/AgentFlow) — pipeline engine
-- [reasonix](https://github.com/AnastasiyaW/reasonix) — LLM runner (or configure your own)
-- Claude Code (optional) — for code development and audit tasks
-
-### Install
+### 安装 / Install
 
 ```bash
-# Clone
 git clone https://github.com/714roy/three-line-pipeline.git
 cd three-line-pipeline
 
-# Set up
 cp src/entry.sh /usr/local/bin/trss
 chmod +x /usr/local/bin/trss
 pip install -e .
 
-# Deploy pipeline
 mkdir -p /tmp/trss
 cp src/pipeline.py /tmp/trss/
 cp src/dsl.py /tmp/trss/
 ```
 
-### Run
+### 运行 / Run
 
 ```bash
-# Direct answer
-trss "What's the weather in Shanghai?"
+# 快速回答
+trss "上海今天天气怎么样？"
 
-# Full pipeline
-trss "Research the AI agent market and write a competitive analysis report"
+# 完整流水线
+trss "调研 AI Agent 编排框架市场，写一份竞争分析报告"
 ```
 
-### Configuration
+### 前置依赖 / Prerequisites
 
-| Env Var | Default | Description |
-|:--------|:--------|:------------|
-| `TRSS_PIPELINE_DIR` | `/tmp/trss` | Pipeline definition location |
-| `TRSS_OUTPUT_DIR` | `/tmp/trss/output` | Output archive base |
-| `TRSS_NOTIFY_CMD` | (none) | Command to run for notifications |
-| `TRSS_LLM_CMD` | `reasonix` | LLM runner command |
-| `TRSS_LLM_MODEL` | `deepseek-v4-flash` | Default LLM model |
+- Python 3.10+
+- [AgentFlow](https://github.com/noahyamamoto/AgentFlow) — 管线引擎
+- [reasonix](https://github.com/AnastasiyaW/reasonix) — LLM 运行器（可配置为其他 CLI）
+- Claude Code（可选）— 代码开发与审计任务
+
+### 配置 / Configuration
+
+| 环境变量 | 默认值 | 说明 |
+|:---------|:-------|:------|
+| `TRSS_PIPELINE_DIR` | `/tmp/trss` | pipeline 定义目录 |
+| `TRSS_OUTPUT_DIR` | `/tmp/trss/output` | 产出归档目录 |
+| `TRSS_NOTIFY_CMD` | (无) | 通知命令（如 `hermes send`） |
+| `TRSS_LLM_CMD` | `reasonix` | LLM 运行器命令 |
+| `TRSS_LLM_MODEL` | `deepseek-v4-flash` | 默认模型 |
 
 ---
 
-## Project Structure
+## 项目结构 / Project Structure
 
 ```text
 three-line-pipeline/
 ├── src/
-│   ├── entry.sh         # Entry script (bash, with rework loop)
-│   ├── pipeline.py      # AgentFlow pipeline (624 lines, 16 nodes)
-│   ├── dsl.py           # DSL library with agent builders
-│   ├── core.py          # Core concepts and philosophy
-│   ├── validator.py     # Output validators
-│   └── prompts/         # Prompt templates
-├── langgraph/           # Alternative LangGraph implementation
+│   ├── entry.sh         # 入口脚本（bash，含 rework 循环）
+│   ├── pipeline.py      # AgentFlow 主图（623 行，16 节点）
+│   ├── dsl.py           # DSL 代理构建器
+│   ├── core.py          # 核心理念定义
+│   ├── validator.py     # 输出校验器
+│   └── prompts/         # 提示词模板
+├── langgraph/           # LangGraph 替代实现
 ├── docs/
-│   ├── architecture.md
-│   ├── naming-mapping.md   # 三省六部 → 三总六科 evolution
-│   └── pitfalls.md
-├── CREDITS.md           # Intellectual origins & open-source deps
+│   ├── architecture.md  # 架构设计 [中文]
+│   ├── naming-mapping.md # 三省六部→三总六科映射
+│   └── pitfalls.md      # 实战陷阱 [中文]
+├── CREDITS.md           # 思想来源与开源依赖
 └── LICENSE              # MIT
 ```
 
 ---
 
-## Evolution
+## 命名演化 / Evolution
 
-This project has gone through three naming phases:
+1. **三省六部** — 唐代治理模型原始概念
+2. **TLP** (Three-Line Pipeline) — 内部开发阶段
+3. **TRSS / 三总六科** — 公开版现代化改造
 
-1. **三省六部** (Three Departments Six Ministries) — original concept based on Tang dynasty governance
-2. **TLP** (Three-Line Pipeline) — renamed from a risk-management framework
-3. **TRSS / 三总六科** — modern corporate restructure for public release
-
-See `docs/naming-mapping.md` for the full mapping.
+详见 `docs/naming-mapping.md`。
 
 ---
 
-## License
+## 许可 / License
 
 MIT — see [LICENSE](LICENSE).
 
-## Credits
+## 致谢 / Credits
 
 See [CREDITS.md](CREDITS.md) for intellectual origins and open-source dependencies.
